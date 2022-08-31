@@ -80,9 +80,9 @@ def main(
                 element = cv2.getStructuringElement(morph_shape(0), (2 * dilatation_size + 1, 2 * dilatation_size + 1),
                                        (dilatation_size, dilatation_size))
 
-                dilated_condition = cv2.dilate(fg_image, element)
+                fg_image = cv2.dilate(fg_image, element)
 
-                fg_mask = cv2.cvtColor(dilated_condition, cv2.COLOR_RGBA2GRAY)
+                fg_mask = cv2.cvtColor(fg_image, cv2.COLOR_RGBA2GRAY)
 
                 fg_mask_condition = np.stack((fg_mask,) * 4, axis=-1) == 255
 

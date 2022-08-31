@@ -16,6 +16,14 @@ set_up_logger()
 
 logger = logging.getLogger(__name__)
 
+# optional mapping of values with morphological shapes
+def morph_shape(val):
+    if val == 0:
+        return cv2.MORPH_RECT
+    elif val == 1:
+        return cv2.MORPH_CROSS
+    elif val == 2:
+        return cv2.MORPH_ELLIPSE
 
 def main(
         asset_name: str, show: bool = False, segmentation: bool = False, save: bool = False
@@ -48,24 +56,39 @@ def main(
         logger.info("resized")
 
         if segmentation:
-            output_asset_name = asset_name.replace("resized", "segmented")
+            output_asset_name = asset_name.replace("original", "segmented")
             with mp_selfie_segmentation.SelfieSegmentation(
                     model_selection=0) as selfie_segmentation:
                 results = selfie_segmentation.process(
                     cv2.cvtColor(output_asset, cv2.COLOR_BGR2RGB)
                 )
 
-                BG_COLOR = (0, 0, 0, 0)  # transparent
-                MASK_COLOR = (255, 255, 255, 255)  # white
+                segmentation_mask = results.segmentation_mask
+                eroded_condition = erode_segmented_subjects(new_x, new_y,
+                                                             segmentation_mask)
 
-                condition = np.stack((results.segmentation_mask,) * 4, axis=-1) > 0.1
+                condition = np.stack((eroded_condition,) * 4, axis=-1) == 255
                 # Generate solid color images for showing the output selfie segmentation mask.
                 fg_image = np.zeros((new_y, new_x, 4), dtype=np.uint8)
-                fg_image[:] = MASK_COLOR
+                fg_image[:] = (255, 255, 255, 255)  # white
+
                 bg_image = np.zeros((new_y, new_x, 4), dtype=np.uint8)
-                bg_image[:] = BG_COLOR
+                bg_image[:] = (0, 0, 0, 0)  # transparent
+                fg_image = np.where(condition, fg_image, bg_image)
+
+                dilatation_size = 8
+                element = cv2.getStructuringElement(morph_shape(0), (2 * dilatation_size + 1, 2 * dilatation_size + 1),
+                                       (dilatation_size, dilatation_size))
+
+                dilated_condition = cv2.dilate(fg_image, element)
+
+                fg_mask = cv2.cvtColor(dilated_condition, cv2.COLOR_RGBA2GRAY)
+
+                fg_mask_condition = np.stack((fg_mask,) * 4, axis=-1) == 255
+
                 output_asset = cv2.cvtColor(output_asset, cv2.COLOR_BGR2RGBA)
-                output_image = np.where(condition, output_asset, bg_image)
+                output_image = np.where(condition, output_asset, fg_image)
+                output_image = np.where(fg_mask_condition, output_image, bg_image)
 
                 output_asset = output_image
 
@@ -75,7 +98,7 @@ def main(
 
             if segmentation:
                 # convert back to BGRA
-                output_asset = cv2.cvtColor(output_asset, cv2.COLOR_BGR2RGB)
+                output_asset = cv2.cvtColor(output_asset, cv2.COLOR_RGBA2BGRA)
 
             output_asset_path = Path(output_asset_name)
             output_asset_path_png = output_asset_path.with_suffix(".png")
@@ -99,6 +122,22 @@ def main(
             plt.show()
     else:
         logger.error("Asset does not exist")
+
+
+def erode_segmented_subjects(new_x, new_y, segmentation_mask):
+    condition = np.stack((segmentation_mask,), axis=-1) > 0.1
+    # Generate solid color images for showing the output selfie segmentation mask.
+    fg_image = np.zeros((new_y, new_x, 1), dtype=np.uint8)
+    fg_image[:] = 255
+    bg_image = np.zeros((new_y, new_x, 1), dtype=np.uint8)
+    bg_image[:] = 0
+    fg_image = np.where(condition, fg_image, bg_image)
+    dilatation_size = 1
+    element = cv2.getStructuringElement(morph_shape(0), (
+    2 * dilatation_size + 1, 2 * dilatation_size + 1),
+                                        (dilatation_size, dilatation_size))
+    dilated_condition = cv2.erode(fg_image, element)
+    return dilated_condition
 
 
 if __name__ == "__main__":

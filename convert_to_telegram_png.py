@@ -1,20 +1,20 @@
 import logging
 from pathlib import Path
+from typing import Tuple
 
 import cv2
 import matplotlib.pyplot as plt
 import mediapipe as mp
-import typer
 import numpy as np
-
-mp_drawing = mp.solutions.drawing_utils
-mp_selfie_segmentation = mp.solutions.selfie_segmentation
-
+import typer
 from log import set_up_logger
+
+mp_selfie_segmentation = mp.solutions.selfie_segmentation
 
 set_up_logger()
 
 logger = logging.getLogger(__name__)
+
 
 # optional mapping of values with morphological shapes
 def morph_shape(val):
@@ -25,9 +25,26 @@ def morph_shape(val):
     elif val == 2:
         return cv2.MORPH_ELLIPSE
 
+
 def main(
-        asset_name: str, show: bool = False, segmentation: bool = False, save: bool = False
+        asset_name: str = typer.Argument(
+            ..., help="Asset name to transform in sticker"
+        ),
+        show: bool = typer.Option(
+            False, help="Show output in using matplotlib.plt"
+        ),
+        segmentation: bool = typer.Option(
+            False, help="Apply selfie segmentation from mediapipe"
+        ),
+        save: bool = typer.Option(
+            False, help="Save image to resized or segmented folder, "
+                        "based on --segmentation option"
+        )
 ) -> None:
+    """
+    Welcome to sticker generator, which creates telegram images for stickers,
+    and if you ask him kindly will also use some "AI" segmentation magic to highlight the subject of the image
+    """
     logger.info(f"Processing {asset_name}")
 
     asset_path = Path(asset_name)
@@ -39,16 +56,7 @@ def main(
 
         logger.info(f"asset size is {asset.shape}")
 
-        y, x, channels = asset.shape
-
-        if x >= y:
-            new_x = 512
-            new_y = int(y / x * 512)
-        else:
-            new_y = 512
-            new_x = int(x / y * 512)
-
-        logger.info(f"new_x, new_y -> ({new_x, new_y})")
+        new_x, new_y = get_new_size(asset)
 
         output_asset = cv2.resize(asset, (new_x, new_y))
         output_asset_name = asset_name.replace("original", "resized")
@@ -65,7 +73,7 @@ def main(
 
                 segmentation_mask = results.segmentation_mask
                 eroded_condition = erode_segmented_subjects(new_x, new_y,
-                                                             segmentation_mask)
+                                                            segmentation_mask)
 
                 condition = np.stack((eroded_condition,) * 4, axis=-1) == 255
                 # Generate solid color images for showing the output selfie segmentation mask.
@@ -76,9 +84,7 @@ def main(
                 bg_image[:] = (0, 0, 0, 0)  # transparent
                 fg_image = np.where(condition, fg_image, bg_image)
 
-                dilatation_size = 8
-                element = cv2.getStructuringElement(morph_shape(0), (2 * dilatation_size + 1, 2 * dilatation_size + 1),
-                                       (dilatation_size, dilatation_size))
+                element = generate_structuring_element(8)
 
                 fg_image = cv2.dilate(fg_image, element)
 
@@ -124,6 +130,38 @@ def main(
         logger.error("Asset does not exist")
 
 
+def get_new_size(
+        asset: np.ndarray
+) -> Tuple[int, int]:
+    """
+    Get new asset size keeping aspect ratio. Do so while not overflowing 512x512 image
+    :param asset: image that was read with cv2.imread (numpy.ndarray)
+    :return: new size tuple
+    """
+    y, x, channels = asset.shape
+    if x >= y:
+        new_x = 512
+        new_y = int(y / x * 512)
+    else:
+        new_y = 512
+        new_x = int(x / y * 512)
+
+    logger.info(f"new_x, new_y -> ({new_x, new_y})")
+
+    return new_x, new_y
+
+
+def generate_structuring_element(size: int) -> np.ndarray:
+    """
+    Generate structuring element based on morph shape and size
+    :param size: size of structuring element
+    :return:
+    """
+    return cv2.getStructuringElement(
+        morph_shape(0), (2 * size + 1, 2 * size + 1), (size, size)
+    )
+
+
 def erode_segmented_subjects(new_x, new_y, segmentation_mask):
     condition = np.stack((segmentation_mask,), axis=-1) > 0.1
     # Generate solid color images for showing the output selfie segmentation mask.
@@ -132,10 +170,7 @@ def erode_segmented_subjects(new_x, new_y, segmentation_mask):
     bg_image = np.zeros((new_y, new_x, 1), dtype=np.uint8)
     bg_image[:] = 0
     fg_image = np.where(condition, fg_image, bg_image)
-    dilatation_size = 1
-    element = cv2.getStructuringElement(morph_shape(0), (
-    2 * dilatation_size + 1, 2 * dilatation_size + 1),
-                                        (dilatation_size, dilatation_size))
+    element = generate_structuring_element(1)
     dilated_condition = cv2.erode(fg_image, element)
     return dilated_condition
 

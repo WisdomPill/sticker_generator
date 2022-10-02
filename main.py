@@ -76,12 +76,11 @@ def main(
                                                             segmentation_mask)
 
                 condition = np.stack((eroded_condition,) * 4, axis=-1) == 255
-                # Generate solid color images for showing the output selfie segmentation mask.
                 fg_image = np.zeros((new_y, new_x, 4), dtype=np.uint8)
-                fg_image[:] = (255, 255, 255, 255)  # white
+                fg_image[:] = (255, 255, 255, 255)  # white, no transparency
 
                 bg_image = np.zeros((new_y, new_x, 4), dtype=np.uint8)
-                bg_image[:] = (0, 0, 0, 0)  # transparent
+                bg_image[:] = (0, 0, 0, 0)  # black, fully transparent
                 fg_image = np.where(condition, fg_image, bg_image)
 
                 element = generate_structuring_element(8)
@@ -155,24 +154,41 @@ def generate_structuring_element(size: int) -> np.ndarray:
     """
     Generate structuring element based on morph shape and size
     :param size: size of structuring element
-    :return:
+    :return: result kernel for erosion/dilation
     """
     return cv2.getStructuringElement(
         morph_shape(0), (2 * size + 1, 2 * size + 1), (size, size)
     )
 
 
-def erode_segmented_subjects(new_x, new_y, segmentation_mask):
+def erode_segmented_subjects(
+        new_x: int, new_y: int, segmentation_mask: np.ndarray
+):
+    """
+    Erode segmented subjects (this is in order to remove noise from segmented subject).
+    Actually it erodes only the mask of the segmented subjects.
+    :param new_x: width of resized image
+    :param new_y: height of resized image
+    :param segmentation_mask: condition from segmented image (by default uses > 0.1)
+    :return: eroded mask
+    """
     condition = np.stack((segmentation_mask,), axis=-1) > 0.1
-    # Generate solid color images for showing the output selfie segmentation mask.
+
+    # white image
     fg_image = np.zeros((new_y, new_x, 1), dtype=np.uint8)
     fg_image[:] = 255
+
+    # black image
     bg_image = np.zeros((new_y, new_x, 1), dtype=np.uint8)
     bg_image[:] = 0
+
+    # put white where segmentation was "activated" > (default 0.1)
     fg_image = np.where(condition, fg_image, bg_image)
+
     element = generate_structuring_element(1)
-    dilated_condition = cv2.erode(fg_image, element)
-    return dilated_condition
+    condition = cv2.erode(fg_image, element)
+
+    return condition
 
 
 if __name__ == "__main__":

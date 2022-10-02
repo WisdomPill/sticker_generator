@@ -8,6 +8,9 @@ mediapipe = "==0.8.10.1"
 typer = {extras = ["all"], version = "==0.6.1"}
 
 [dev-packages]
+black = "==22.8.0"
+flake8 = "==5.0.4"
+isort = "==5.10.1"
 
 [requires]
 python_version = "3.9"
